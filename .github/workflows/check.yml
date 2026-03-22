@@ -1,0 +1,41 @@
+name: Check Notice
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Install axios
+        run: npm install axios
+
+      - name: Run script
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          # 파일이 없으면 0이 담긴 파일을 즉시 만듭니다.
+          if [ ! -f last_id.txt ]; then echo "0" > last_id.txt; fi
+          node index.js
+
+      - name: Force Sync and Push
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # 새 파일을 깃허브 관리 목록에 강제로 추가합니다.
+          git add last_id.txt
+          
+          # 변경사항이 있을 때만 저장합니다.
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "Initialize and update last notice ID"
+            git push origin main
+          else
+            echo "No changes to commit"
+          fi
