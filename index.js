@@ -1,23 +1,64 @@
 const axios = require('axios');
 const fs = require('fs');
 
-const OFFICIAL_LOUNGE_ID = 'official'; 
-const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK;
+const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
+const FILE_PATH = './last_id.txt';
+
+// [치지직 소식] 그룹에 해당하는 공식 게시판 ID 목록입니다.
+// 라운지 구조에 따라 공식 게시판들만 순회합니다.
+const OFFICIAL_BOARD_IDS = [1, 2, 3, 5, 8, 10]; 
 
 async function checkNotice() {
     try {
-        const response = await axios.get(`https://api.chzzk.naver.com/service/v1/channels/${OFFICIAL_LOUNGE_ID}/lounge/posts?size=1`);
-        const lastNotice = response.data.content.data[0];
-        if (!lastNotice) return;
-
-        const lastSavedId = fs.existsSync('last_id.txt') ? fs.readFileSync('last_id.txt', 'utf8') : '';
-
-        if (lastNotice.postId !== lastSavedId) {
-            await axios.post(DISCORD_WEBHOOK_URL, {
-                content: `📢 **치지직 새로운 공식 공지**\n\n**제목:** ${lastNotice.title}\n**링크:** https://chzzk.naver.com/lounge/chzzk/posts/${lastNotice.postId}`
-            });
-            fs.writeFileSync('last_id.txt', lastNotice.postId);
+        let lastId = 0;
+        if (fs.existsSync(FILE_PATH)) {
+            lastId = parseInt(fs.readFileSync(FILE_PATH, 'utf8')) || 0;
         }
-    } catch (e) { console.error(e.message); }
+
+        let maxIdInThisRun = lastId;
+
+        for (const boardId of OFFICIAL_BOARD_IDS) {
+            // 각 공식 게시판의 최신글을 가져옵니다.
+            const url = `https://game.naver.com/lounge/chzzk/api/board/v1/posts?boardId=${boardId}&page=1&pageSize=5`;
+            const response = await axios.get(url);
+            
+            if (!response.data.data || !response.data.data.contents) continue;
+            
+            const posts = response.data.data.contents;
+
+            for (const post of posts) {
+                const postId = post.postId;
+
+                // 1. 이전에 읽은 글보다 최신글이어야 함
+                // 2. 작성자가 '치지직' 공식 계정(Manager)인 경우만 발송
+                if (postId > lastId && (post.writer.isManager || post.postTargetType === 'OFFICIAL')) {
+                    
+                    await axios.post(DISCORD_WEBHOOK, {
+                        embeds: [{
+                            title: `📢 치지직 소식: ${post.title}`,
+                            description: `**카테고리:** ${post.boardName}`,
+                            url: `https://game.naver.com/lounge/chzzk/board/detail/${postId}`,
+                            color: 0x00ff00, // 초록색 강조
+                            footer: { text: "치지직 공식 알림" },
+                            timestamp: new Date()
+                        }]
+                    });
+
+                    if (postId > maxIdInThisRun) {
+                        maxIdInThisRun = postId;
+                    }
+                }
+            }
+        }
+
+        // 가장 높은 ID를 파일에 저장하여 중복 알림 방지
+        if (maxIdInThisRun > lastId) {
+            fs.writeFileSync(FILE_PATH, maxIdInThisRun.toString());
+        }
+
+    } catch (error) {
+        console.error('데이터를 가져오는 중 오류 발생:', error.message);
+    }
 }
+
 checkNotice();
