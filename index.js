@@ -1,5 +1,4 @@
 const axios = require('axios');
-axios.post(process.env.DISCORD_WEBHOOK, { content: "✅ Clouvy 알림 시스템 정상 작동 중!" });
 const fs = require('fs');
 
 const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
