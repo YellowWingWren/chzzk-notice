@@ -20,7 +20,6 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          # 파일이 없으면 0이 담긴 파일을 즉시 만듭니다.
           if [ ! -f last_id.txt ]; then echo "0" > last_id.txt; fi
           node index.js
 
@@ -29,12 +28,14 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # 새 파일을 깃허브 관리 목록에 강제로 추가합니다.
+          # 서버의 최신 상태를 먼저 가져와서 합칩니다 (충돌 방지)
+          git pull origin main --rebase
+          
           git add last_id.txt
           
-          # 변경사항이 있을 때만 저장합니다.
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "Initialize and update last notice ID"
+            git commit -m "Update last notice ID"
+            # 강제로 main 브랜치에 밀어넣습니다.
             git push origin main
           else
             echo "No changes to commit"
