@@ -20,7 +20,8 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          if [ ! -f last_id.txt ]; then echo "0" > last_id.txt; fi
+          # 파일이 없으면 빈 상태({})로 미리 만들어둡니다.
+          if [ ! -f last_ids.json ]; then echo "{}" > last_ids.json; fi
           node index.js
 
       - name: Force Push ID
@@ -28,11 +29,15 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          git add last_ids.json # 파일 이름을 json으로 변경
-          
-          if [ -n "$(git status --porcelain last_ids.json)" ]; then
-            git commit -m "Update last notice IDs"
-            git push --force origin main
+          # 파일이 존재할 때만 git add를 실행합니다.
+          if [ -f last_ids.json ]; then
+            git add last_ids.json
+            if [ -n "$(git status --porcelain last_ids.json)" ]; then
+              git commit -m "Update last notice IDs"
+              git push --force origin main
+            else
+              echo "변경 사항 없음"
+            fi
           else
-            echo "변경 사항 없음"
+            echo "저장할 파일이 없습니다."
           fi
