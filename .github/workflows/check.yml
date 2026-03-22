@@ -23,20 +23,17 @@ jobs:
           if [ ! -f last_id.txt ]; then echo "0" > last_id.txt; fi
           node index.js
 
-      - name: Force Sync and Push
+      - name: Force Push ID
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          
-          # 서버의 최신 상태를 먼저 가져와서 합칩니다 (충돌 방지)
-          git pull origin main --rebase
           
           git add last_id.txt
           
           if [ -n "$(git status --porcelain)" ]; then
             git commit -m "Update last notice ID"
-            # 강제로 main 브랜치에 밀어넣습니다.
-            git push origin main
+            # --force 옵션을 사용하여 충돌을 무시하고 강제로 저장합니다.
+            git push --force origin main
           else
             echo "No changes to commit"
           fi
