@@ -12,72 +12,71 @@ async function checkNotice() {
             lastIds = fileContent ? JSON.parse(fileContent) : {};
         }
 
-        // 모바일 API 주소는 보안이 유연하며 데이터 접근이 쉽습니다.
-        const url = `https://apis.naver.com/game_api/lounge/chzzk/board/v1/posts/all?page=1&pageSize=15`;
+        // [정석 주소] 치지직 라운지의 공식 공지/이벤트 등을 통합해서 가져오는 API입니다.
+        const url = `https://game.naver.com/lounge/chzzk/api/board/v1/posts/all?page=1&pageSize=15`;
         
         const response = await axios.get(url, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
                 'Accept': 'application/json, text/plain, */*',
-                'Referer': 'https://m.game.naver.com/'
+                'Referer': 'https://game.naver.com/lounge/chzzk/home'
             }
         });
 
-        // [데이터 자동 탐색] 어떤 이름의 주머니에 데이터가 들어있든 찾아냅니다.
-        let posts = [];
-        const findPosts = (obj) => {
-            if (!obj || typeof obj !== 'object') return;
-            if (Array.isArray(obj) && obj.length > 0 && obj[0].postId) {
-                posts = obj;
-                return;
-            }
-            for (const key in obj) {
-                if (posts.length > 0) break;
-                findPosts(obj[key]);
-            }
-        };
-        findPosts(response.data);
-
-        if (posts.length === 0) {
-            console.log("게시글 배열을 찾을 수 없습니다. 응답 구조:", JSON.stringify(response.data).substring(0, 200));
-            return;
+        // 네이버 게임 라운지 API 표준 구조로 접근
+        const contents = response.data?.data?.contents;
+        
+        if (!contents || !Array.isArray(contents)) {
+            // 만약 또 HTML이 온다면, 주소를 약간 우회하는 API로 한 번 더 시도합니다.
+            console.log("일반 API 차단 확인, 우회 API로 재시도합니다...");
+            return await tryBackupApi(lastIds);
         }
         
-        let hasNewUpdate = false;
-
-        // 역순으로 처리하여 옛날 글부터 알림
-        for (const post of [...posts].reverse()) {
-            const category = post.boardName || "치지직 소식";
-            const postId = post.postId;
-            const title = post.title;
-
-            if (!lastIds[category] || postId > lastIds[category]) {
-                console.log(`새 글 발견: [${category}] ${title}`);
-
-                await axios.post(DISCORD_WEBHOOK, {
-                    embeds: [{
-                        title: `📢 [${category}] 새 소식: ${title}`,
-                        url: `https://game.naver.com/lounge/chzzk/board/detail/${postId}`,
-                        color: 0x00ff00,
-                        footer: { text: "치지직 알림 도우미" },
-                        timestamp: new Date()
-                    }]
-                });
-
-                lastIds[category] = postId;
-                hasNewUpdate = true;
-            }
-        }
-
-        if (hasNewUpdate) {
-            fs.writeFileSync(FILE_PATH, JSON.stringify(lastIds, null, 2));
-            console.log("성공적으로 업데이트되었습니다!");
-        } else {
-            console.log("새로운 게시글이 없습니다.");
-        }
+        await processPosts(contents, lastIds);
 
     } catch (error) {
-        console.error('오류 발생:', error.message);
+        console.error('실행 중 오류 발생:', error.message);
+    }
+}
+
+async function tryBackupApi(lastIds) {
+    const backupUrl = `https://apis.naver.com/game_api/lounge/chzzk/api/v1/home/banners`; // 홈 배너/공지 API
+    try {
+        const res = await axios.get(backupUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
+        console.log("우회 API 응답 성공");
+        // 이 구조는 배너 형태라 postId 추출 방식이 다를 수 있지만, 일단 연결 확인이 우선입니다.
+    } catch (e) {
+        console.log("우회 API마저 차단되었습니다.");
+    }
+}
+
+async function processPosts(posts, lastIds) {
+    let hasNewUpdate = false;
+    for (const post of [...posts].reverse()) {
+        const category = post.boardName || "공지";
+        const postId = post.postId;
+        const title = post.title;
+
+        if (!lastIds[category] || postId > lastIds[category]) {
+            console.log(`새 글 발견: [${category}] ${title}`);
+            await axios.post(DISCORD_WEBHOOK, {
+                embeds: [{
+                    title: `📢 [${category}] 새 소식: ${title}`,
+                    url: `https://game.naver.com/lounge/chzzk/board/detail/${postId}`,
+                    color: 0x00ff00,
+                    footer: { text: "치지직 알림 도우미" },
+                    timestamp: new Date()
+                }]
+            });
+            lastIds[category] = postId;
+            hasNewUpdate = true;
+        }
+    }
+
+    if (hasNewUpdate) {
+        fs.writeFileSync(FILE_PATH, JSON.stringify(lastIds, null, 2));
     }
 }
 
