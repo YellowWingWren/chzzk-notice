@@ -7,7 +7,7 @@ jobs:
   run:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # 파일 수정을 위한 필수 권한
     steps:
       - uses: actions/checkout@v3
         with:
@@ -19,6 +19,8 @@ jobs:
       - name: Run script
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
         run: |
           if [ ! -f last_ids.json ]; then echo '{"notice":[]}' > last_ids.json; fi
           node index.js
@@ -28,10 +30,10 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add last_ids.json
-          # 변경사항이 있을 때만 커밋 및 푸시하여 에러 방지
-          if [ -n "$(git status --porcelain last_ids.json)" ]; then
+          # 실제로 파일이 바뀌었을 때만 커밋
+          if [ -n "$(git status --porcelain)" ]; then
             git commit -m "Update last notice IDs"
             git push origin main
           else
-            echo "No changes to commit"
+            echo "변경사항이 없어 건너뜁니다."
           fi
