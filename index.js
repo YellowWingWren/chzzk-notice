@@ -16,13 +16,19 @@ async function checkChzzkNotice() {
         const loungeUrl = "https://apis.naver.com/game_api/game_api/v1/lounge/chzzk/board/15/posts?page=1&size=10";
         console.log("치지직 공식 공지사항 확인 중...");
         
-        const res = await axios.get(loungeUrl);
+        // [핵심] 네이버 서버를 속이기 위한 실제 브라우저 정보 추가
+        const res = await axios.get(loungeUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://game.naver.com/lounge/chzzk/board/15',
+                'Origin': 'https://game.naver.com'
+            }
+        });
         
-        // 데이터 구조 안전하게 접근 (에러 방지)
         const posts = (res.data && res.data.data && res.data.data.items) ? res.data.data.items : [];
         
         if (posts.length === 0) {
-            console.log("가져온 공지사항 데이터가 없습니다.");
+            console.log("데이터를 가져오는 데 실패했거나 공지가 비어있습니다.");
             return;
         }
 
@@ -59,7 +65,7 @@ async function checkChzzkNotice() {
             fs.writeFileSync(FILE_PATH, JSON.stringify({ notice: finalIds }, null, 2));
             console.log(`파일 업데이트 완료: ${finalIds.length}개 저장됨`);
         } else {
-            console.log("새로운 공지가 없습니다.");
+            console.log("이미 모든 공지를 확인했습니다.");
         }
 
     } catch (err) {
