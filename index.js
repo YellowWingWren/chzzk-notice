@@ -8,7 +8,7 @@ const FILE_PATH = './last_ids.json';
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // 사용자님이 확인해주신 최신 게시글 번호 기준 (이 미만은 절대 알림 안 보냄)
-const TARGET_POST_ID = 7447150; 
+const TARGET_POST_ID = 7440000; 
 
 async function checkChzzkNotice() {
     try {
