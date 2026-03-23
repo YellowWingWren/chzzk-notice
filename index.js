@@ -12,26 +12,17 @@ async function checkChzzkNotice() {
             lastData = JSON.parse(content || '{"notice":[]}');
         }
 
-        // 치지직 공식 라운지 공지사항 API
+        // 치지직 공식 라운지 공지사항 API 직접 호출
         const loungeUrl = "https://apis.naver.com/game_api/game_api/v1/lounge/chzzk/board/15/posts?page=1&size=10";
         console.log("치지직 공식 공지사항 확인 중...");
         
-        // [핵심] 네이버 서버를 속이기 위한 실제 브라우저 정보 추가
         const res = await axios.get(loungeUrl, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Referer': 'https://game.naver.com/lounge/chzzk/board/15',
-                'Origin': 'https://game.naver.com'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
         });
         
         const posts = (res.data && res.data.data && res.data.data.items) ? res.data.data.items : [];
-        
-        if (posts.length === 0) {
-            console.log("데이터를 가져오는 데 실패했거나 공지가 비어있습니다.");
-            return;
-        }
-
         let newIds = [...lastData.notice];
         let hasNewUpdate = false;
 
@@ -42,10 +33,8 @@ async function checkChzzkNotice() {
 
             if (!lastData.notice.includes(postId)) {
                 console.log(`[신규 발견] ${title}`);
-                
                 await axios.post(DISCORD_WEBHOOK, {
                     username: "치지직 알림이",
-                    avatar_url: "https://ssl.pstatic.net/static/nng/glive/icon_192.png",
                     embeds: [{
                         title: `📢 치지직 공식 공지사항`,
                         description: `**${title}**`,
@@ -54,20 +43,18 @@ async function checkChzzkNotice() {
                         timestamp: new Date()
                     }]
                 });
-                
                 newIds.push(postId);
                 hasNewUpdate = true;
             }
         }
 
         if (hasNewUpdate) {
-            const finalIds = [...new Set(newIds)].slice(-50);
-            fs.writeFileSync(FILE_PATH, JSON.stringify({ notice: finalIds }, null, 2));
-            console.log(`파일 업데이트 완료: ${finalIds.length}개 저장됨`);
+            const finalData = { notice: [...new Set(newIds)].slice(-50) };
+            fs.writeFileSync(FILE_PATH, JSON.stringify(finalData, null, 2));
+            console.log("파일 기록 업데이트 완료.");
         } else {
-            console.log("이미 모든 공지를 확인했습니다.");
+            console.log("새로운 소식이 없습니다.");
         }
-
     } catch (err) {
         console.error('실행 오류:', err.message);
     }
