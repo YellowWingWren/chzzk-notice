@@ -4,9 +4,6 @@ const fs = require('fs');
 const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
 const FILE_PATH = './last_ids.json';
 
-// 감시할 카테고리 목록 (이름이 정확해야 합니다)
-const TARGET_CATEGORIES = ['공지사항', '업데이트', '같이보기 안내', '이벤트', '콘텐츠 제작 지원', 'EWC'];
-
 async function checkNotice() {
     try {
         let lastIds = {};
@@ -14,6 +11,7 @@ async function checkNotice() {
             lastIds = JSON.parse(fs.readFileSync(FILE_PATH, 'utf8'));
         }
 
+        // 전체 게시글 목록 가져오기
         const url = `https://game.naver.com/lounge/chzzk/api/board/v1/posts/all?page=1&pageSize=15`;
         const response = await axios.get(url);
         
@@ -22,20 +20,19 @@ async function checkNotice() {
         const posts = response.data.data.contents;
         let hasNewUpdate = false;
 
-        // 최신순으로 정렬되어 있으므로, 역순으로 처리하여 옛날 글부터 알림을 보냅니다.
+        // 옛날 글부터 처리 (역순)
         for (const post of [...posts].reverse()) {
-            const category = post.boardName;
+            const category = post.boardName; // 실제 카테고리 이름
             const postId = post.postId;
+            const isOfficial = post.postTargetType === 'OFFICIAL' || (post.writer && post.writer.isManager);
 
-            // [수정된 조건] 
-            // 1. 우리가 원하는 카테고리 목록에 포함되는지 확인
-            // 2. 작성자가 매니저이거나, 공식 마크가 있거나, 혹은 카테고리 이름 자체가 '공식 소식' 영역인지 확인
-            const isTargetCategory = TARGET_CATEGORIES.includes(category);
-            
-            if (isTargetCategory) {
-                // 해당 카테고리의 마지막 저장된 번호보다 큰 경우만 새 글 처리
+            // [핵심 로직] 공식 글(매니저 작성 등)이기만 하면 카테고리 상관없이 체크!
+            if (isOfficial) {
+                // 이 카테고리에 대해 저장된 번호가 없거나, 더 최신 글인 경우
                 if (!lastIds[category] || postId > lastIds[category]) {
                     
+                    console.log(`새 글 발견: [${category}] ${post.title}`);
+
                     await axios.post(DISCORD_WEBHOOK, {
                         embeds: [{
                             title: `📢 [${category}] 새 소식: ${post.title}`,
@@ -54,6 +51,9 @@ async function checkNotice() {
 
         if (hasNewUpdate) {
             fs.writeFileSync(FILE_PATH, JSON.stringify(lastIds, null, 2));
+            console.log("last_ids.json 업데이트 완료");
+        } else {
+            console.log("새로 올라온 공식 게시글이 없습니다.");
         }
 
     } catch (error) {
