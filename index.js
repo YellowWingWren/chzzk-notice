@@ -16,7 +16,6 @@ async function checkChzzkNotice() {
             lastData = JSON.parse(content || '{"notice":[]}');
         }
 
-        // 검색 데이터 개수를 늘려 더 많은 정보를 확보합니다.
         const query = encodeURIComponent('site:game.naver.com/lounge/chzzk/board/detail');
         const url = `https://openapi.naver.com/v1/search/webkr.json?query=${query}&display=10`;
 
@@ -34,41 +33,30 @@ async function checkChzzkNotice() {
             const postId = match[1];
 
             if (!lastData.notice.includes(postId)) {
+                // 제목에서 HTML 태그와 불필요한 문구 제거
                 const cleanTitle = item.title.replace(/<[^>]*>?/gm, '').replace(/ : 네이버 게임/g, '');
-                
-                // 본문 내용을 최대한 살리기 위한 필터링
-                let cleanDesc = item.description
-                    .replace(/<[^>]*>?/gm, '')
-                    .replace(/&quot;/g, '"')
-                    .replace(/&apos;/g, "'")
-                    .replace(/&lt;/g, '<')
-                    .replace(/&gt;/g, '>')
-                    .replace(/\s+/g, ' ') // 불필요한 공백 제거
-                    .trim();
 
                 try {
                     await axios.post(DISCORD_WEBHOOK, {
-                        username: "치지직 실시간 알림",
+                        username: "치지직 알림",
                         avatar_url: "https://ssl.pstatic.net/static/nng/glive/icon_192.png",
                         embeds: [{
-                            title: `📄 ${cleanTitle}`,
+                            title: cleanTitle, // 제목 클릭 시 이동
                             url: item.link,
-                            // 설명란(description)에 내용을 집중 배치
-                            description: `\n> ${cleanDesc}\n\n**[공지사항 전체 읽기](${item.link})**`,
                             color: 0x00FFA3,
-                            timestamp: new Date(),
                             footer: {
-                                text: "치지직 공식 라운지 알림",
+                                text: "치지직 공식 공지사항",
                                 icon_url: "https://ssl.pstatic.net/static/nng/glive/icon_192.png"
-                            }
+                            },
+                            timestamp: new Date()
                         }]
                     });
                     
                     newIds.push(postId);
                     hasNewUpdate = true;
-                    await sleep(2000); // 429 에러 방지
+                    await sleep(1500); // 전송 간격 유지
                 } catch (sendErr) {
-                    console.error(`발송 에러: ${sendErr.message}`);
+                    console.error(`발송 실패: ${sendErr.message}`);
                     newIds.push(postId);
                 }
             }
