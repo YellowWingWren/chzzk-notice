@@ -18,10 +18,13 @@ jobs:
 
       - name: Run script
         env:
+          # 아래 세 줄이 핵심입니다. GitHub Secrets에서 값을 가져와 코드에 전달합니다.
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
         run: |
           # 파일이 없으면 빈 상태({})로 미리 만들어둡니다.
-          if [ ! -f last_ids.json ]; then echo "{}" > last_ids.json; fi
+          if [ ! -f last_ids.json ]; then echo '{"notice":[]}' > last_ids.json; fi
           node index.js
 
       - name: Force Push ID
