@@ -12,13 +12,20 @@ async function checkChzzkNotice() {
             lastData = JSON.parse(content || '{"notice":[]}');
         }
 
-        // 치지직 공식 라운지 공지사항 API 직접 호출
+        // 치지직 공식 라운지 공지사항 API
         const loungeUrl = "https://apis.naver.com/game_api/game_api/v1/lounge/chzzk/board/15/posts?page=1&size=10";
         console.log("치지직 공식 공지사항 확인 중...");
         
         const res = await axios.get(loungeUrl);
-        const posts = res.data.data.items || [];
         
+        // 데이터 구조 안전하게 접근 (에러 방지)
+        const posts = (res.data && res.data.data && res.data.data.items) ? res.data.data.items : [];
+        
+        if (posts.length === 0) {
+            console.log("가져온 공지사항 데이터가 없습니다.");
+            return;
+        }
+
         let newIds = [...lastData.notice];
         let hasNewUpdate = false;
 
@@ -31,8 +38,8 @@ async function checkChzzkNotice() {
                 console.log(`[신규 발견] ${title}`);
                 
                 await axios.post(DISCORD_WEBHOOK, {
-                    username: "치지직 알림이", // 봇 이름을 여기서 고정합니다
-                    avatar_url: "https://ssl.pstatic.net/static/nng/glive/icon_192.png", // 치지직 아이콘
+                    username: "치지직 알림이",
+                    avatar_url: "https://ssl.pstatic.net/static/nng/glive/icon_192.png",
                     embeds: [{
                         title: `📢 치지직 공식 공지사항`,
                         description: `**${title}**`,
@@ -50,7 +57,7 @@ async function checkChzzkNotice() {
         if (hasNewUpdate) {
             const finalIds = [...new Set(newIds)].slice(-50);
             fs.writeFileSync(FILE_PATH, JSON.stringify({ notice: finalIds }, null, 2));
-            console.log("파일 업데이트 완료: " + finalIds.length + "개 저장됨");
+            console.log(`파일 업데이트 완료: ${finalIds.length}개 저장됨`);
         } else {
             console.log("새로운 공지가 없습니다.");
         }
