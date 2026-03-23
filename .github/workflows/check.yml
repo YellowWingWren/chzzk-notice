@@ -7,7 +7,7 @@ jobs:
   run:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # 파일 수정을 위한 필수 권한
+      contents: write # 파일 저장 권한 필수
     steps:
       - uses: actions/checkout@v3
         with:
@@ -22,6 +22,7 @@ jobs:
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
         run: |
+          # 파일이 없으면 기본 구조 생성
           if [ ! -f last_ids.json ]; then echo '{"notice":[]}' > last_ids.json; fi
           node index.js
 
@@ -29,11 +30,12 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
+          # 특정 파일만 정확하게 추적하도록 설정
           git add last_ids.json
-          # 실제로 파일이 바뀌었을 때만 커밋
-          if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "Update last notice IDs"
-            git push origin main
+          # 수정사항이 있을 때만 커밋 및 푸시
+          if git diff --cached --quiet; then
+            echo "변경사항이 없어 종료합니다."
           else
-            echo "변경사항이 없어 건너뜁니다."
+            git commit -m "Update notice history"
+            git push origin main
           fi
