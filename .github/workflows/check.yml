@@ -28,7 +28,8 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add last_ids.json
-          if ! git diff --cached --quiet; then
+          # 변경사항이 있을 때만 커밋 및 푸시
+          if [ -n "$(git status --porcelain)" ]; then
             git commit -m "Update last notice IDs"
             git push origin main
           else
