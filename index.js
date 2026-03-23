@@ -12,40 +12,39 @@ async function checkNotice() {
             lastIds = fileContent ? JSON.parse(fileContent) : {};
         }
 
-        // [핵심 변경] API 주소 뒤에 타임스탬프를 붙여 '매번 새로운 요청'처럼 보이게 합니다.
-        const timestamp = Date.now();
-        const url = `https://game.naver.com/lounge/chzzk/api/board/v1/posts/all?page=1&pageSize=15&_=${timestamp}`;
+        // [최종 병기] 모바일 전용 API 주소와 강력한 위장 헤더를 사용합니다.
+        const url = `https://apis.naver.com/game_api/lounge/chzzk/board/v1/posts/all?page=1&pageSize=15`;
         
         const response = await axios.get(url, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
                 'Accept': 'application/json, text/plain, */*',
-                'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-                'Origin': 'https://game.naver.com',
-                'Referer': 'https://game.naver.com/lounge/chzzk/board/1',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
+                'Accept-Language': 'ko-KR,ko;q=0.9',
+                'Referer': 'https://m.game.naver.com/lounge/chzzk/board/1',
+                'Origin': 'https://m.game.naver.com',
+                'Cookie': 'NID_AUT=dummy; NID_SES=dummy;' // 가짜 쿠키라도 넣어 봇 판정을 피합니다.
             }
         });
 
-        // 응답이 HTML인지 JSON인지 먼저 확인합니다.
+        // JSON 데이터인지 확인
+        let contents;
         if (typeof response.data === 'string' && response.data.includes('<!doctype html>')) {
-            console.log("네이버가 아직도 봇으로 의심하여 HTML 페이지를 보냈습니다.");
+            console.log("여전히 HTML 페이지가 반환되었습니다. 네이버의 차단이 매우 강력합니다.");
             return;
+        } else {
+            // 모바일 API는 구조가 조금 다를 수 있어 유연하게 체크합니다.
+            contents = response.data?.data?.contents || response.data?.contents || response.data?.data?.items;
         }
-
-        const data = response.data?.data;
-        const contents = data?.contents || data?.items || (Array.isArray(data) ? data : null);
         
         if (!contents || !Array.isArray(contents)) {
-            console.log("데이터 주머니를 찾지 못했습니다.");
+            console.log("데이터를 찾을 수 없습니다. 응답 상태:", response.status);
             return;
         }
         
         let hasNewUpdate = false;
 
         for (const post of [...contents].reverse()) {
-            const category = post.boardName || "공지사항"; 
+            const category = post.boardName || "알림"; 
             const postId = post.postId;
             const title = post.title;
 
@@ -78,6 +77,9 @@ async function checkNotice() {
 
     } catch (error) {
         console.error('실행 중 오류 발생:', error.message);
+        if (error.response && error.response.data) {
+            console.log("에러 데이터 일부:", JSON.stringify(error.response.data).substring(0, 100));
+        }
     }
 }
 
