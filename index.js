@@ -4,90 +4,78 @@ const fs = require('fs');
 const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
 const FILE_PATH = './last_ids.json';
 
-async function fetchWithRetry(url, referer) {
-    return await axios.get(url, {
-        timeout: 10000,
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'ko-KR,ko;q=0.9',
-            'Referer': referer,
-            'Origin': 'https://game.naver.com'
-        }
-    });
-}
-
 async function checkNotice() {
     try {
-        let lastIds = fs.existsSync(FILE_PATH) ? JSON.parse(fs.readFileSync(FILE_PATH, 'utf8')) : { notice: [] };
-        if (!Array.isArray(lastIds.notice)) lastIds.notice = [];
-
-        // 1순위: 게시판 API / 2순위: 홈 배너 API (보험)
-        const targets = [
-            { url: 'https://game.naver.com/lounge/chzzk/api/board/v1/posts/all?page=1&pageSize=10', ref: 'https://game.naver.com/lounge/chzzk/board/1' },
-            { url: 'https://apis.naver.com/game_api/lounge/chzzk/api/v1/home/banners', ref: 'https://game.naver.com/lounge/chzzk/home' }
-        ];
-
-        let rawData = null;
-        for (const target of targets) {
-            try {
-                const res = await fetchWithRetry(target.url, target.ref);
-                if (res.data && typeof res.data === 'object') {
-                    rawData = res.data;
-                    console.log(`성공 주소: ${target.url}`);
-                    break; 
-                }
-            } catch (e) { console.log(`시도 실패: ${target.url}`); }
+        let lastIds = { notice: [] };
+        if (fs.existsSync(FILE_PATH)) {
+            const content = fs.readFileSync(FILE_PATH, 'utf8');
+            lastIds = content ? JSON.parse(content) : { notice: [] };
         }
 
-        if (!rawData) throw new Error("모든 API 접근에 실패했습니다.");
+        // 성공 확인된 배너 API
+        const url = `https://apis.naver.com/game_api/lounge/chzzk/api/v1/home/banners`;
+        const res = await axios.get(url, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36' }
+        });
 
-        // 데이터 내부에서 게시글(ID와 제목이 있는 배열) 자동 검색
+        const rawData = res.data;
         let items = [];
-        const scan = (obj) => {
-            if (items.length > 0 || !obj || typeof obj !== 'object') return;
-            if (Array.isArray(obj)) {
-                const candidates = obj.filter(i => i && (i.postId || i.bannerId || i.id) && i.title);
-                if (candidates.length > 0) { items = candidates; return; }
+
+        // [구조적 탐색] 이름이 무엇이든 "내용물"의 특징으로 찾습니다.
+        const deepSearch = (obj) => {
+            if (!obj || typeof obj !== 'object') return;
+            if (Array.isArray(obj)) { obj.forEach(deepSearch); return; }
+
+            // 1. 객체의 모든 값을 검사합니다.
+            const values = Object.values(obj);
+            
+            // 2. "http"로 시작하는 링크가 있고, "10자 이상의 긴 텍스트"가 있는 객체를 찾습니다.
+            const hasLink = values.some(v => typeof v === 'string' && v.startsWith('http'));
+            const hasLongText = values.some(v => typeof v === 'string' && v.length >= 10);
+            
+            if (hasLink && hasLongText) {
+                // 가장 긴 텍스트를 제목으로, http 주소를 링크로 자동 할당
+                const potentialTitle = values.find(v => typeof v === 'string' && v.length >= 10);
+                const potentialLink = values.find(v => typeof v === 'string' && v.startsWith('http'));
+                const potentialId = String(obj.id || obj.bannerId || potentialTitle);
+
+                items.push({ id: potentialId, title: potentialTitle, link: potentialLink });
             }
-            Object.values(obj).forEach(scan);
+            
+            // 더 깊이 탐색
+            values.forEach(deepSearch);
         };
-        scan(rawData);
+        deepSearch(rawData);
 
         if (items.length === 0) {
-            console.log("알림을 보낼 데이터를 찾지 못했습니다.");
+            console.log("데이터를 분석하지 못했습니다. 응답 샘플:", JSON.stringify(rawData).substring(0, 300));
             return;
         }
 
         let hasNew = false;
-        for (const item of [...items].reverse()) {
-            const id = String(item.postId || item.bannerId || item.id);
-            const title = item.title;
-            const link = item.postId ? `https://game.naver.com/lounge/chzzk/board/detail/${id}` : (item.linkUrl || item.url);
+        // 중복 제거 (탐색 중 여러 번 걸릴 수 있음)
+        const uniqueItems = Array.from(new Map(items.map(item => [item.id, item])).values());
 
-            if (!lastIds.notice.includes(id)) {
-                console.log(`새 글 전송: ${title}`);
+        for (const item of uniqueItems) {
+            if (!lastIds.notice.includes(item.id)) {
+                console.log(`[새 소식 전송] ${item.title}`);
                 await axios.post(DISCORD_WEBHOOK, {
-                    embeds: [{
-                        title: `📢 치지직 소식: ${title}`,
-                        url: link || 'https://game.naver.com/lounge/chzzk/home',
-                        color: 0x31A2FF,
-                        footer: { text: "Chzzk Notice Bot" },
-                        timestamp: new Date()
-                    }]
+                    content: `📢 **치지직 새 소식**\n\n**제목**: ${item.title}\n**링크**: ${item.link}`
                 });
-                lastIds.notice.push(id);
+                lastIds.notice.push(item.id);
                 hasNew = true;
             }
         }
 
         if (hasNew) {
-            lastIds.notice = lastIds.notice.slice(-30); // 최신 30개만 유지
+            lastIds.notice = lastIds.notice.slice(-50);
             fs.writeFileSync(FILE_PATH, JSON.stringify(lastIds, null, 2));
+        } else {
+            console.log("새로운 소식이 없습니다.");
         }
 
     } catch (err) {
-        console.error('최종 오류:', err.message);
+        console.error('실행 오류:', err.message);
     }
 }
 
