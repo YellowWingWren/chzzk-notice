@@ -12,28 +12,31 @@ async function checkNotice() {
             lastIds = fileContent ? JSON.parse(fileContent) : {};
         }
 
-        // 최신 게시글 15개를 가져옵니다.
+        // [핵심 수정] 브라우저인 척 위장하기 위해 headers를 추가합니다.
         const url = `https://game.naver.com/lounge/chzzk/api/board/v1/posts/all?page=1&pageSize=15`;
-        const response = await axios.get(url);
+        const response = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://game.naver.com/lounge/chzzk/board/1'
+            }
+        });
         
-        if (!response.data.data || !response.data.data.contents) {
-            console.log("데이터를 가져오는 데 실패했습니다.");
+        // 데이터 구조를 더 꼼꼼하게 확인합니다.
+        const contents = response.data?.data?.contents;
+        if (!contents || !Array.isArray(contents)) {
+            console.log("서버 응답은 성공했으나 게시글 데이터를 찾을 수 없습니다.");
+            console.log("응답 내용:", JSON.stringify(response.data).substring(0, 200));
             return;
         }
         
-        const posts = response.data.data.contents;
         let hasNewUpdate = false;
 
-        // 오래된 글부터 하나씩 체크 (역순)
-        for (const post of [...posts].reverse()) {
-            const category = post.boardName; // 실제 카테고리 이름
+        for (const post of [...contents].reverse()) {
+            const category = post.boardName || "알 수 없음";
             const postId = post.postId;
             const title = post.title;
 
-            // [조건 완전 해제] 
-            // 이 카테고리에서 처음 보는 번호이거나, 저장된 번호보다 크면 무조건 발송!
             if (!lastIds[category] || postId > lastIds[category]) {
-                
                 console.log(`새 글 발견! [${category}] ${title}`);
 
                 await axios.post(DISCORD_WEBHOOK, {
@@ -53,13 +56,16 @@ async function checkNotice() {
 
         if (hasNewUpdate) {
             fs.writeFileSync(FILE_PATH, JSON.stringify(lastIds, null, 2));
-            console.log("새로운 소식을 업데이트했습니다.");
+            console.log("last_ids.json 업데이트 완료!");
         } else {
-            console.log("새로 올라온 공식 게시글이 없습니다.");
+            console.log("새로 올라온 소식이 없습니다.");
         }
 
     } catch (error) {
         console.error('실행 중 오류 발생:', error.message);
+        if (error.response) {
+            console.error('서버 응답 코드:', error.response.status);
+        }
     }
 }
 
