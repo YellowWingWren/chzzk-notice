@@ -1,91 +1,82 @@
 const axios = require('axios');
 const fs = require('fs');
 
+const CLIENT_ID = process.env.NAVER_CLIENT_ID;
+const CLIENT_SECRET = process.env.NAVER_CLIENT_SECRET;
 const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
 const FILE_PATH = './last_ids.json';
 
-async function checkNotice() {
+async function checkChzzkNotice() {
     try {
+        // 1. 기존 기록 불러오기
         let lastIds = { notice: [] };
         if (fs.existsSync(FILE_PATH)) {
             const content = fs.readFileSync(FILE_PATH, 'utf8');
             lastIds = content ? JSON.parse(content) : { notice: [] };
         }
 
-        // 지적하신 대로 '/1'을 제거하여 전체 게시판을 타겟팅합니다.
-        const targetUrl = 'https://game.naver.com/lounge/chzzk/board';
-        
-        const res = await axios.get(targetUrl, {
+        // 2. 네이버 검색 API 호출 (공식적인 길)
+        // 키워드: 치지직 라운지 게시판의 글들을 검색합니다.
+        const query = encodeURIComponent('site:game.naver.com/lounge/chzzk/board/detail');
+        const url = `https://openapi.naver.com/v1/search/webkr.json?query=${query}&display=20&sort=sim`;
+
+        console.log("네이버 검색 API 호출 중...");
+        const res = await axios.get(url, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                'Accept-Language': 'ko-KR,ko;q=0.9',
-                'Cache-Control': 'no-cache'
+                'X-Naver-Client-Id': CLIENT_ID,
+                'X-Naver-Client-Secret': CLIENT_SECRET
             }
         });
 
-        const html = res.data;
-        // 네이버의 서버 사이드 렌더링 데이터(JSON) 추출
-        const dataMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.+?)<\/script>/);
-        
-        if (!dataMatch) {
-            console.log("페이지 데이터를 분석할 수 없습니다. (구조 변경 또는 차단)");
-            return;
-        }
+        const items = res.data.items || [];
+        let hasNew = false;
 
-        const jsonData = JSON.parse(dataMatch[1]);
-        
-        // 전체 게시판 목록 데이터 경로 (네이버의 최신 구조 반영)
-        const posts = jsonData.props?.pageProps?.initialState?.board?.posts?.contents || 
-                      jsonData.props?.pageProps?.initialState?.feed?.posts?.contents || [];
-
-        if (posts.length === 0) {
-            console.log("현재 게시판에서 글 목록을 찾을 수 없습니다.");
-            return;
-        }
-
-        let hasNewUpdate = false;
-        // 최신순으로 정렬된 데이터를 과거 순으로 뒤집어서 처리
-        for (const post of [...posts].reverse()) {
-            const postId = String(post.postId);
-            const title = post.title;
-            const writerNickname = post.writer?.nickname || "";
+        // 3. 검색 결과 분석
+        for (const item of items) {
+            const link = item.link;
+            // 링크에서 게시글 ID 추출 (예: .../detail/12345 -> 12345)
+            const match = link.match(/detail\/(\d+)/);
+            if (!match) continue;
             
-            // [필터링 핵심] 
-            // 1. 작성자 닉네임에 '치지직'이 들어감 
-            // 2. 혹은 네이버에서 공식 인증한 'isOfficial' 마크가 붙음
-            const isOfficialPost = post.isOfficial === true || writerNickname.includes('치지직');
+            const postId = match[1];
+            const cleanTitle = item.title.replace(/<[^>]*>?/gm, ''); // HTML 태그 제거
 
-            if (isOfficialPost && !lastIds.notice.includes(postId)) {
-                console.log(`[공식 게시글 발견] ${title}`);
-                
+            // 이미 알림을 보낸 글인지 확인
+            if (!lastIds.notice.includes(postId)) {
+                console.log(`[신규 게시글 발견] ${cleanTitle}`);
+
+                // 4. 디스코드 전송
                 await axios.post(DISCORD_WEBHOOK, {
                     embeds: [{
-                        title: `📢 치지직 라운지 공식 소식`,
-                        description: `**${title}**\n\n작성자: ${writerNickname}`,
-                        url: `https://game.naver.com/lounge/chzzk/board/detail/${postId}`,
+                        title: `📢 치지직 라운지 신규 소식 (공식 검색)`,
+                        description: `**${cleanTitle}**\n\n${item.description.replace(/<[^>]*>?/gm, '')}`,
+                        url: link,
                         color: 0x00FFA3,
-                        footer: { text: "Chzzk Official Monitor" },
+                        footer: { text: "Naver Official Search API" },
                         timestamp: new Date()
                     }]
                 });
-                
+
                 lastIds.notice.push(postId);
-                hasNewUpdate = true;
+                hasNew = true;
             }
         }
 
-        if (hasNewUpdate) {
+        // 5. 결과 저장
+        if (hasNew) {
             lastIds.notice = lastIds.notice.slice(-50);
             fs.writeFileSync(FILE_PATH, JSON.stringify(lastIds, null, 2));
-            console.log("새 소식 알림 전송 및 기록 업데이트 완료.");
+            console.log("새 소식 알림 완료.");
         } else {
-            console.log("새로운 공식 소식이 없습니다.");
+            console.log("새로운 소식이 검색되지 않았습니다.");
         }
 
     } catch (err) {
-        console.error('실행 중 오류:', err.message);
+        console.error('API 실행 중 오류 발생:', err.message);
+        if (err.response && err.response.status === 401) {
+            console.error("오류: API 키가 올바르지 않습니다. GitHub Secrets를 확인해 주세요.");
+        }
     }
 }
 
-checkNotice();
+checkChzzkNotice();
