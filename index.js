@@ -12,62 +12,75 @@ async function checkNotice() {
             lastIds = content ? JSON.parse(content) : { notice: [] };
         }
 
-        // [목표] 치지직 라운지 게시판 전체 글 목록 API
-        // 이 주소가 사용자님이 말씀하신 '게시판' 데이터를 담고 있습니다.
-        const url = `https://game.naver.com/lounge/chzzk/api/board/v1/posts/all?page=1&pageSize=20`;
+        // 지적하신 대로 '/1'을 제거하여 전체 게시판을 타겟팅합니다.
+        const targetUrl = 'https://game.naver.com/lounge/chzzk/board';
         
-        const res = await axios.get(url, {
+        const res = await axios.get(targetUrl, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                'Referer': 'https://game.naver.com/lounge/chzzk/board/1',
-                'Accept': 'application/json, text/plain, */*'
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'ko-KR,ko;q=0.9',
+                'Cache-Control': 'no-cache'
             }
         });
 
-        // 네이버 게시판 API의 표준 데이터 구조
-        const posts = res.data?.data?.contents;
-
-        if (!posts || !Array.isArray(posts)) {
-            console.log("게시판 데이터를 불러오지 못했습니다. (보안 차단 가능성)");
+        const html = res.data;
+        // 네이버의 서버 사이드 렌더링 데이터(JSON) 추출
+        const dataMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.+?)<\/script>/);
+        
+        if (!dataMatch) {
+            console.log("페이지 데이터를 분석할 수 없습니다. (구조 변경 또는 차단)");
             return;
         }
 
-        let hasNew = false;
-        // 최신순으로 오기 때문에 뒤집어서 옛날 글부터 처리
+        const jsonData = JSON.parse(dataMatch[1]);
+        
+        // 전체 게시판 목록 데이터 경로 (네이버의 최신 구조 반영)
+        const posts = jsonData.props?.pageProps?.initialState?.board?.posts?.contents || 
+                      jsonData.props?.pageProps?.initialState?.feed?.posts?.contents || [];
+
+        if (posts.length === 0) {
+            console.log("현재 게시판에서 글 목록을 찾을 수 없습니다.");
+            return;
+        }
+
+        let hasNewUpdate = false;
+        // 최신순으로 정렬된 데이터를 과거 순으로 뒤집어서 처리
         for (const post of [...posts].reverse()) {
             const postId = String(post.postId);
             const title = post.title;
-            const writer = post.writer?.nickname || ""; // 작성자 닉네임
+            const writerNickname = post.writer?.nickname || "";
+            
+            // [필터링 핵심] 
+            // 1. 작성자 닉네임에 '치지직'이 들어감 
+            // 2. 혹은 네이버에서 공식 인증한 'isOfficial' 마크가 붙음
+            const isOfficialPost = post.isOfficial === true || writerNickname.includes('치지직');
 
-            // [필터링] 작성자가 '치지직'이거나, 공식 마크(isOfficial)가 있거나, 
-            // 공지 카테고리인 경우만 수집 (일반인 글 차단)
-            const isOfficial = post.isOfficial === true || writer.includes('치지직') || post.boardName === '공지사항';
-
-            if (isOfficial && !lastIds.notice.includes(postId)) {
+            if (isOfficialPost && !lastIds.notice.includes(postId)) {
                 console.log(`[공식 게시글 발견] ${title}`);
                 
                 await axios.post(DISCORD_WEBHOOK, {
                     embeds: [{
-                        title: `📢 치지직 라운지 공식 공지`,
-                        description: `**${title}**\n작성자: ${writer}`,
+                        title: `📢 치지직 라운지 공식 소식`,
+                        description: `**${title}**\n\n작성자: ${writerNickname}`,
                         url: `https://game.naver.com/lounge/chzzk/board/detail/${postId}`,
                         color: 0x00FFA3,
-                        footer: { text: "Chzzk Board Monitor" },
+                        footer: { text: "Chzzk Official Monitor" },
                         timestamp: new Date()
                     }]
                 });
                 
                 lastIds.notice.push(postId);
-                hasNew = true;
+                hasNewUpdate = true;
             }
         }
 
-        if (hasNew) {
+        if (hasNewUpdate) {
             lastIds.notice = lastIds.notice.slice(-50);
             fs.writeFileSync(FILE_PATH, JSON.stringify(lastIds, null, 2));
-            console.log("새로운 공식 게시글 알림 완료.");
+            console.log("새 소식 알림 전송 및 기록 업데이트 완료.");
         } else {
-            console.log("새로운 공식 게시글이 없습니다.");
+            console.log("새로운 공식 소식이 없습니다.");
         }
 
     } catch (err) {
